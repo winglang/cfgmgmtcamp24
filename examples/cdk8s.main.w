@@ -6,7 +6,6 @@ bring fs;
 let appData = new plus.ConfigMap();
 appData.addDirectory("./src");
 
-
 let appVolume = plus.Volume.fromConfigMap(this, "ConfigMap", appData);
 
 // lets create a deployment to run a few instances of a pod

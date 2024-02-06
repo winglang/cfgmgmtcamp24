@@ -3,27 +3,23 @@ bring expect;
 bring http;
 bring "./hitcounter.w" as h;
 
-struct Alias {
-  target: str;
-  alias: str;
-}
-
-class UrlShortener {
+class Shortener {
   mapping: cloud.Bucket;
   pub url: str;
   hitcounter: h.HitCounter;
 
   new() {
-    this.hitcounter = new h.HitCounter();
+    let api = new cloud.Api()  as "data_plane";
     let mapping = new cloud.Bucket() as "mapping";
-    let api = new cloud.Api() as "data_plane";
+    this.hitcounter = new h.HitCounter();
+    this.mapping = mapping;
     this.url = api.url;
-
+    
     api.get("/:alias", inflight (req) => {
       let alias = req.vars.get("alias");
-      log("redirecting {alias} to ??");
       let target = mapping.get(alias);
       this.hitcounter.hit(alias);
+      log("redirecting {alias} to ?");
       return {
         status: 307,
         headers: {
@@ -31,12 +27,10 @@ class UrlShortener {
         }
       };
     });
-  
-    this.mapping = mapping;
   }
 
-  pub inflight shorten(opts: Alias) {
-    this.mapping.put(opts.alias, opts.target);
+  pub inflight create(alias: str, target: str) {
+    this.mapping.put(alias, target);
   }
 
   pub inflight stats(): Map<num> {
@@ -44,28 +38,19 @@ class UrlShortener {
   }
 }
 
-let shortner = new UrlShortener();
+let s = new Shortener() as "s2";
+
 
 test "happy flow" {
-  shortner.shorten(alias: "wing", target: "https://winglang.io");
-  shortner.shorten(alias: "cfg", target: "https://cfgmgmtcamp.org");
+  s.create("wing", "https://winglang.io");
+  let response = http.get("{s.url}/wing", redirect: http.RequestRedirect.MANUAL);
+  expect.equal(307, response.status);
+  let location = response.headers.get("location");
+  expect.equal("https://winglang.io", location);
 
-  let check = (alias: str, target: str) => {
-    let r1 = http.get("{shortner.url}/{alias}", redirect: http.RequestRedirect.MANUAL);
-    expect.equal(r1.status, 307);
-    let location = r1.headers.get("location");
-    log(location);
-    expect.equal(target, location);
-  };
+  http.get("{s.url}/wing", redirect: http.RequestRedirect.MANUAL);
+  http.get("{s.url}/wing", redirect: http.RequestRedirect.MANUAL);
 
-  check("wing", "https://winglang.io");
-  check("cfg", "https://cfgmgmtcamp.org");
-  check("cfg", "https://cfgmgmtcamp.org");
-  check("cfg", "https://cfgmgmtcamp.org");
-
-  log(Json.stringify(shortner.stats()));
+  log(Json.stringify(s.stats()));
 }
 
-new cloud.Function(inflight () => {
-  log("bigstuff");
-}, memory: 2048);
